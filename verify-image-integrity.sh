@@ -33,23 +33,16 @@ echo "  App dir:    $APP_DIR"
 echo "  Source dir:  $SOURCE_DIR"
 echo ""
 
-# Hash the source tree — all non-hidden files, sorted for determinism
-SOURCE_HASH=$(find "$SOURCE_DIR" \
-  -not -path '*/.git/*' \
-  -not -path '*/.github/*' \
-  -not -path '*/__pycache__/*' \
-  -not -path '*/.venv/*' \
-  -not -name '*.pyc' \
-  -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+# Get the file list from inside the image — this is the authority on what got COPYed
+IMAGE_FILES=$(docker run --rm --entrypoint sh "$IMAGE" -c \
+  "find $APP_DIR -type f | sed 's|^$APP_DIR/||' | sort")
 
-# Hash the same files inside the image
-IMAGE_HASH=$(docker run --rm --entrypoint sh "$IMAGE" -c "find $APP_DIR \
-  -not -path '*/.git/*' \
-  -not -path '*/.github/*' \
-  -not -path '*/__pycache__/*' \
-  -not -path '*/.venv/*' \
-  -not -name '*.pyc' \
-  -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1")
+# Hash those specific files inside the image
+IMAGE_HASH=$(docker run --rm --entrypoint sh "$IMAGE" -c \
+  "cd $APP_DIR && echo '$IMAGE_FILES' | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1")
+
+# Hash the same files in the source tree
+SOURCE_HASH=$(cd "$SOURCE_DIR" && echo "$IMAGE_FILES" | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
 
 echo "  Source hash: $SOURCE_HASH"
 echo "  Image hash:  $IMAGE_HASH"
