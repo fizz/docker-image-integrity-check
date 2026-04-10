@@ -13,6 +13,9 @@ on:
 jobs:
   repro:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -24,8 +27,16 @@ jobs:
         with:
           driver-opts: image=moby/buildkit:v0.28.0
 
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # Match the pre-NA-510 auth-handler pattern: three consecutive
-      # build-push-action@v5 calls with overlapping cache-from/cache-to.
+      # build-push-action@v5 calls with overlapping cache-from/cache-to
+      # and push: true to a real registry.
 
       - name: Build step 1 (load into daemon, prime cache)
         uses: docker/build-push-action@v5
@@ -34,51 +45,48 @@ jobs:
           platforms: linux/arm64
           push: false
           load: true
-          tags: integrity-test:v1
+          tags: integrity-test:local
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build step 2 (rebuild with cache-from + cache-to, simulates commercial push)
+      - name: Build step 2 (rebuild and push to ghcr.io, simulates commercial push)
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/arm64
-          push: false
-          load: true
-          tags: integrity-test:v2
+          push: true
+          tags: ghcr.io/fizz/docker-image-integrity-check:repro-commercial
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build step 3 (rebuild with cache-from only, simulates GovCloud push)
+      - name: Build step 3 (rebuild and push to ghcr.io, simulates GovCloud push)
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/arm64
-          push: false
-          load: true
-          tags: integrity-test:v3
+          push: true
+          tags: ghcr.io/fizz/docker-image-integrity-check:repro-govcloud
           cache-from: type=gha
 
-      - name: Show config.json contents from each image
+      - name: Pull and verify commercial-pushed image
         run: |
-          for tag in v1 v2 v3; do
-            echo "=== integrity-test:$tag ==="
-            docker run --rm integrity-test:$tag cat /app/config.json
-            echo ""
-          done
+          docker pull ghcr.io/fizz/docker-image-integrity-check:repro-commercial
+          echo "=== ghcr.io commercial image config.json ==="
+          docker run --rm ghcr.io/fizz/docker-image-integrity-check:repro-commercial cat /app/config.json
+          echo ""
           echo "Source config.json:"
           cat config.json
-
-      - name: Verify image v3 (GovCloud analog) matches source
-        run: |
-          ./verify-image-integrity.sh integrity-test:v3 /app . || {
-            echo "⚠️ STALE CACHE DETECTED — integrity-test:v3 has old files"
+          ./verify-image-integrity.sh ghcr.io/fizz/docker-image-integrity-check:repro-commercial /app . || {
+            echo "⚠️ STALE CACHE DETECTED — commercial-pushed image has old files"
             exit 1
           }
 
-      - name: Verify image v2 (commercial analog) matches source
+      - name: Pull and verify govcloud-pushed image
         run: |
-          ./verify-image-integrity.sh integrity-test:v2 /app . || {
-            echo "⚠️ STALE CACHE DETECTED — integrity-test:v2 has old files"
+          docker pull ghcr.io/fizz/docker-image-integrity-check:repro-govcloud
+          echo "=== ghcr.io govcloud image config.json ==="
+          docker run --rm ghcr.io/fizz/docker-image-integrity-check:repro-govcloud cat /app/config.json
+          ./verify-image-integrity.sh ghcr.io/fizz/docker-image-integrity-check:repro-govcloud /app . || {
+            echo "⚠️ STALE CACHE DETECTED — govcloud-pushed image has old files"
             exit 1
           }
