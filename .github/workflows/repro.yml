@@ -69,6 +69,8 @@ jobs:
           cache-from: type=gha
 
       - name: Pull and verify commercial-pushed image
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/arm64
         run: |
           docker pull ghcr.io/fizz/docker-image-integrity-check:repro-commercial
           echo "=== ghcr.io commercial image config.json ==="
@@ -82,6 +84,8 @@ jobs:
           }
 
       - name: Pull and verify govcloud-pushed image
+        env:
+          DOCKER_DEFAULT_PLATFORM: linux/arm64
         run: |
           docker pull ghcr.io/fizz/docker-image-integrity-check:repro-govcloud
           echo "=== ghcr.io govcloud image config.json ==="
