@@ -1,0 +1,6 @@
+[project]
+name = "integrity-test"
+version = "0.1.0"
+description = "Repro for buildx GHA cache stale COPY bug"
+requires-python = ">=3.11"
+dependencies = []
