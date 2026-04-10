@@ -2,6 +2,13 @@ name: Reproduce stale COPY cache
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'config.json'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/repro.yml'
 
 jobs:
   repro:
@@ -17,54 +24,28 @@ jobs:
         with:
           driver-opts: image=moby/buildkit:v0.28.0
 
-      - name: Build with GHA cache (first build — primes the cache)
+      - name: Build with GHA cache (will reuse cache from prior workflow runs)
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/arm64
           push: false
           load: true
-          tags: integrity-test:v1
+          tags: integrity-test:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify first build matches source
-        run: ./verify-image-integrity.sh integrity-test:v1 /app .
-
-      - name: Modify source file (simulates a code change between builds)
+      - name: Show config.json contents from image
         run: |
-          echo '{"version": "2.0.0", "feature": "updated"}' > config.json
-          echo "Source file changed:"
+          echo "Source config.json:"
           cat config.json
-
-      - name: Rebuild with GHA cache (second build — cache may serve stale COPY)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/arm64
-          push: false
-          load: true
-          tags: integrity-test:v2
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Verify second build matches source (this may fail)
-        run: |
-          echo "Expected: config.json should contain version 2.0.0"
-          echo "Actual contents in image:"
-          docker run --rm integrity-test:v2 cat /app/config.json
           echo ""
-          ./verify-image-integrity.sh integrity-test:v2 /app . || echo "⚠️ STALE CACHE DETECTED — the image has old files"
+          echo "Image config.json:"
+          docker run --rm integrity-test:latest cat /app/config.json
 
-      - name: Rebuild WITHOUT cache (control — should always match)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/arm64
-          push: false
-          load: true
-          tags: integrity-test:v3
-          no-cache: true
-
-      - name: Verify no-cache build matches source (should always pass)
-        run: ./verify-image-integrity.sh integrity-test:v3 /app .
+      - name: Verify image matches source
+        run: |
+          ./verify-image-integrity.sh integrity-test:latest /app . || {
+            echo "⚠️ STALE CACHE DETECTED — the image has old files"
+            exit 1
+          }
