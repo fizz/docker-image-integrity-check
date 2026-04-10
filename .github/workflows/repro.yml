@@ -24,28 +24,61 @@ jobs:
         with:
           driver-opts: image=moby/buildkit:v0.28.0
 
-      - name: Build with GHA cache (will reuse cache from prior workflow runs)
+      # Match the pre-NA-510 auth-handler pattern: three consecutive
+      # build-push-action@v5 calls with overlapping cache-from/cache-to.
+
+      - name: Build step 1 (load into daemon, prime cache)
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/arm64
           push: false
           load: true
-          tags: integrity-test:latest
+          tags: integrity-test:v1
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Show config.json contents from image
+      - name: Build step 2 (rebuild with cache-from + cache-to, simulates commercial push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: integrity-test:v2
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build step 3 (rebuild with cache-from only, simulates GovCloud push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: integrity-test:v3
+          cache-from: type=gha
+
+      - name: Show config.json contents from each image
         run: |
+          for tag in v1 v2 v3; do
+            echo "=== integrity-test:$tag ==="
+            docker run --rm integrity-test:$tag cat /app/config.json
+            echo ""
+          done
           echo "Source config.json:"
           cat config.json
-          echo ""
-          echo "Image config.json:"
-          docker run --rm integrity-test:latest cat /app/config.json
 
-      - name: Verify image matches source
+      - name: Verify image v3 (GovCloud analog) matches source
         run: |
-          ./verify-image-integrity.sh integrity-test:latest /app . || {
-            echo "⚠️ STALE CACHE DETECTED — the image has old files"
+          ./verify-image-integrity.sh integrity-test:v3 /app . || {
+            echo "⚠️ STALE CACHE DETECTED — integrity-test:v3 has old files"
+            exit 1
+          }
+
+      - name: Verify image v2 (commercial analog) matches source
+        run: |
+          ./verify-image-integrity.sh integrity-test:v2 /app . || {
+            echo "⚠️ STALE CACHE DETECTED — integrity-test:v2 has old files"
             exit 1
           }
